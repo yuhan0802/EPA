@@ -43,7 +43,7 @@ pip install -r requirements.txt
 ```
 <!-- TODO: Ensure you have a `requirements.txt` file in your project listing all necessary Python packages. -->
 
----
+
 
 ## 💾 Datasets and Pre-trained Models
 
@@ -68,13 +68,13 @@ It will be available soon.
 [//]: # ()
 [//]: # (After downloading, extract the files and place them under `./checkpoints/`.)
 
----
+
 
 ## ⚡️ Inference
 
 To run inference on your own frame sequence, please refer to the interpolation.py file.
 
----
+
 
 ## 📜 Citation
 If you find our work useful for your research, please consider citing our paper:
