@@ -5,7 +5,7 @@ import os
 import torch
 import glob
 from PIL import Image
-from predict.pred_utils import  GroupedMetricLogger, MetricLogger, dists_, flolpips_, get_voxel_and_mask, lpips_, psnr_, ssim_
+from predict.pred_utils import GroupedMetricLogger, flolpips_, get_voxel_and_mask, lpips_, psnr_, ssim_, dists_
 from util.event import EventSequence
 import torchvision.transforms as transforms
 
@@ -85,10 +85,9 @@ def predict_vimeo90k(model, num_bins, device, save_path, isSave=False, isTestPer
             lpips = lpips_(pure_gt, pred_out)
             
             loss_logger.update("all", psnr, ssim, lpips, flolpips, dists)
-            loss_logger.print_all_summaries()
             save_name = os.path.join(save_path, str(index).zfill(6) + ".png")
             if isTestPer:
-                print(psnr, "  ", ssim, " ", lpips, " ", flolpips, " ", dists)
+                print(psnr, "  ", ssim, " ", lpips, " ", flolpips)
                 
             if isSave:
                 if isinstance(saveIndexRange, list):
@@ -96,3 +95,4 @@ def predict_vimeo90k(model, num_bins, device, save_path, isSave=False, isTestPer
                         cv2.imwrite(save_name, pred_out)
                 else:
                     cv2.imwrite(save_name, pred_out)
+    loss_logger.print_summary("all")

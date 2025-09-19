@@ -71,9 +71,6 @@ class Model:
     def save_model(self, path):
         torch.save(self.my_net.state_dict(), '{}/work.pkl'.format(path))
 
-    def save_model_min_loss(self, path):
-        torch.save(self.my_net.state_dict(), '{}/min_loss.pkl'.format(path))
-
     def save_checkpoint(self, type, epoch):
         checkpoint = {
             "net": self.my_net.state_dict(),
@@ -119,9 +116,7 @@ class Model:
         pred = self.inverse_normalize(pred)
         pred = torch.clamp(pred, 0, 1)
 
-        loss = self.perc(pred, pure_gt)
-        # for fea_gt, fea_pred, p0, p1 in zip(Gts, Gts_pred, Gts_pred_0, Gts_pred_1):
-        #     loss += self.l2(fea_gt, fea_pred)
+        loss = self.perc(pred, pure_gt) + self.lap(pred, pure_gt)
         for fea_gt, fea_pred, p0, p1 in zip(Gts, Gts_pred, Gts_pred_0, Gts_pred_1):
             loss += self.l2(fea_gt, fea_pred) + 0.5 * self.l2(fea_gt, p0) + 0.1 * self.l2(fea_gt, p1)
         # for fea_gt, fea_pred, p0, p1 in zip(Gts, Gts_pred, Gts_pred_0, Gts_pred_1):

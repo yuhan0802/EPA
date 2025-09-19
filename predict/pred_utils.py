@@ -1,6 +1,6 @@
 import os
-import io
 import cv2
+import io
 import lpips
 import numpy as np
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
@@ -14,23 +14,24 @@ import torchvision.transforms as transforms
 from flolpipsloss.flolpips import Flolpips
 from torchmetrics.image.dists import DeepImageStructureAndTextureSimilarity
 
-mean=[0.485, 0.456, 0.406]
-std=[0.229, 0.224, 0.225]
+mean = [0.485, 0.456, 0.406]
+std = [0.229, 0.224, 0.225]
 
 normalize = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(mean=mean, std=std)
 ])
-        
+
 to_tensor = transforms.Compose([
     transforms.ToTensor()
 ])
 
 device = torch.device("cuda")
 warnings.filterwarnings('ignore')
-loss_lpips = lpips.LPIPS(net='alex').to(device)
+loss_lpips = lpips.LPIPS(net='alex')
 loss_flolpips = Flolpips().to(device)
 loss_dists = DeepImageStructureAndTextureSimilarity().to(device)
+
 
 def psnr_(gt, pred):
     return peak_signal_noise_ratio(gt, pred)
@@ -41,17 +42,22 @@ def ssim_(gt, pred):
     return structural_similarity(gt, pred, data_range=gt.max() - gt.min(), multichannel=multichannel,
                                  gaussian_weights=True, channel_axis=2)
 
+
 def lpips_(gt, pred):
     return loss_lpips(gt, pred).item()
+
 
 def flolpips_(img0, img1, pure_gt, pred):
     flolpips = loss_flolpips.forward(img0, img1, pred, pure_gt)
     return flolpips.item()
 
+
 def dists_(gt, img):
     return loss_dists(gt, img).item()
-    
-def looking_for_event_index_by_timestamp(path, bins, img_index0, gt_index, img_index1, h, w, frames, real=False, bsergb=False):
+
+
+def looking_for_event_index_by_timestamp(path, bins, img_index0, gt_index, img_index1, h, w, frames, real=False,
+                                         bsergb=False, aid=False):
     event_folder = os.path.join(path, 'events')
     if not real:
         timestamps_path = os.path.join(path, 'timestamps.txt')
@@ -66,6 +72,12 @@ def looking_for_event_index_by_timestamp(path, bins, img_index0, gt_index, img_i
                               range(start_ind, gt_ind)]
         after_event_paths = [os.path.join(event_folder, str(i).zfill(10) + ".npz") for i in
                              range(gt_ind, end_ind)]
+    elif aid:
+        event_folder = os.path.join(path, 'event')
+        before_event_paths = [os.path.join(event_folder, str(i + 1).zfill(6) + ".txt") for i in
+                              range(img_index0, gt_index)]
+        after_event_paths = [os.path.join(event_folder, str(i + 1).zfill(6) + ".txt") for i in
+                             range(gt_index, img_index1)]
     else:
         before_event_paths = [os.path.join(event_folder, str(i).zfill(6) + ".npz") for i in
                               range(img_index0, gt_index)]
@@ -81,60 +93,43 @@ def looking_for_event_index_by_timestamp(path, bins, img_index0, gt_index, img_i
         events_t1 = None
     if events_0t is None:
         event_0t_voxel = torch.zeros([bins, h, w])
-        ec_0t = torch.zeros([2, h, w])
-    else: 
+    else:
         event_0t_voxel = to_voxel_grid(events_0t, bins)
-        ec_0t = events_to_channels(events_0t)
     if events_t1 is None:
         event_t1_voxel = torch.zeros([bins, h, w])
         event_1t_voxel = torch.zeros([bins, h, w])
-        ec_t1 = torch.zeros([2, h, w])
     else:
         event_t1_voxel = to_voxel_grid(events_t1, bins)
-        ec_t1 = events_to_channels(events_t1)
         event_1t = events_t1.reverse()
         event_1t_voxel = to_voxel_grid(event_1t, bins)
-    event_cnt = torch.cat((ec_0t, ec_t1), 0)
-    event_cnt = process_mask(event_cnt)
-    event_voxel = torch.cat((event_0t_voxel, event_t1_voxel, event_1t_voxel), 0).unsqueeze(0).to(device, non_blocking=True)
-    mask = event_cnt.unsqueeze(0).to(device, non_blocking=True)
-    return event_voxel, mask
+    event_voxel = torch.cat((event_0t_voxel, event_t1_voxel, event_1t_voxel), 0).unsqueeze(0).to(device,
+                                                                                                 non_blocking=True)
+    return event_voxel
 
 
 def get_voxel_and_mask(num_bins, events_0t, events_t1, h, w):
     if events_0t is None:
         event_0t_voxel = torch.zeros([num_bins, h, w])
-        ec_0t = torch.zeros([2, h, w])
-    else: 
+    else:
         event_0t_voxel = to_voxel_grid(events_0t, num_bins)
-        ec_0t = events_to_channels(events_0t)
     if events_t1 is None:
         event_t1_voxel = torch.zeros([num_bins, h, w])
         event_1t_voxel = torch.zeros([num_bins, h, w])
-        ec_t1 = torch.zeros([2, h, w])
     else:
         event_t1_voxel = to_voxel_grid(events_t1, num_bins)
-        ec_t1 = events_to_channels(events_t1)
         event_1t = events_t1.reverse()
         event_1t_voxel = to_voxel_grid(event_1t, num_bins)
-    event_cnt = torch.cat((ec_0t, ec_t1), 0)
-    event_cnt = process_mask(event_cnt)
-    event_voxel = torch.cat((event_0t_voxel, event_t1_voxel, event_1t_voxel), 0).unsqueeze(0).to(device, non_blocking=True)
-    mask = event_cnt.unsqueeze(0).to(device, non_blocking=True)
-    return event_voxel, mask
+    event_voxel = torch.cat((event_0t_voxel, event_t1_voxel, event_1t_voxel), 0).unsqueeze(0).to(device,
+                                                                                                 non_blocking=True)
+    return event_voxel
 
 
 def get_imgs(img_paths, multi, index):
-    img0 = Image.open(img_paths[index])
-    img1 = Image.open(img_paths[index + multi + 1])
+    img0 = np.array(Image.open(img_paths[index]))
+    img1 = np.array(Image.open(img_paths[index + multi + 1]))
     img0 = normalize(img0).unsqueeze(0).to(device, non_blocking=True)
     img1 = normalize(img1).unsqueeze(0).to(device, non_blocking=True)
     return img0, img1
-
-# 获取文件夹下所有场景名
-def get_scenes(path):
-    return [f for f in os.listdir(path) if os.path.isdir(os.path.join(path, f))]
-
 
 class MetricLogger:
     def __init__(self):
@@ -145,12 +140,11 @@ class MetricLogger:
             'flolpips': []
         }
 
-    def update(self, psnr, ssim, lpips, flolpips, dists):
+    def update(self, psnr, ssim, lpips, flolpips):
         self.metrics['psnr'].append(psnr)
         self.metrics['ssim'].append(ssim)
         self.metrics['lpips'].append(lpips)
         self.metrics['flolpips'].append(flolpips)
-        self.metrics['dists'].append(dists)
 
     def mean(self):
         return {k: np.mean(v) for k, v in self.metrics.items()}
@@ -183,7 +177,8 @@ class GroupedMetricLogger:
 
     def print_summary(self, group_name):
         mean_metrics = self.mean(group_name)
-        print(f"[{group_name}] PSNR: {mean_metrics['psnr']:.4f}  SSIM: {mean_metrics['ssim']:.4f}  LPIPS: {mean_metrics['lpips']:.4f}  FloLPIPS: {mean_metrics['flolpips']:.4f}  DISTS: {mean_metrics['dists']:.4f}")
+        print(
+            f"[{group_name}] PSNR: {mean_metrics['psnr']:.4f}  SSIM: {mean_metrics['ssim']:.4f}  LPIPS: {mean_metrics['lpips']:.4f}  FloLPIPS: {mean_metrics['flolpips']:.4f}  DISTS: {mean_metrics['dists']:.4f}")
 
     def print_all_summaries(self):
         for group_name in self.groups.keys():

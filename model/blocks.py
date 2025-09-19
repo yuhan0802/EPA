@@ -52,138 +52,12 @@ class FusionNet(nn.Module):
         return x3, x2, x1
 
 
-class up(nn.Module):
-    def __init__(self, inChannels, outChannels):
-        super(up, self).__init__()
-        self.conv1 = nn.Conv2d(inChannels, outChannels, 3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(2 * outChannels, outChannels, 3, stride=1, padding=1)
-
-    def forward(self, x, skpCn):
-        x = F.interpolate(x, scale_factor=2, mode="bilinear")
-        x = F.leaky_relu(self.conv1(x), negative_slope=0.1)
-        x = F.leaky_relu(self.conv2(torch.cat((x, skpCn), 1)), negative_slope=0.1)
-        return x
-
-
-class down(nn.Module):
-    def __init__(self, inChannels, outChannels, filterSize):
-        super(down, self).__init__()
-        self.conv1 = nn.Conv2d(
-            inChannels,
-            outChannels,
-            filterSize,
-            stride=1,
-            padding=int((filterSize - 1) / 2),
-        )
-        self.conv2 = nn.Conv2d(
-            outChannels,
-            outChannels,
-            filterSize,
-            stride=1,
-            padding=int((filterSize - 1) / 2),
-        )
-
-    def forward(self, x):
-        x = F.avg_pool2d(x, 2)
-        x = F.leaky_relu(self.conv1(x), negative_slope=0.1)
-        x = F.leaky_relu(self.conv2(x), negative_slope=0.1)
-        return x
-
-
 def conv(in_planes, out_planes, kernel_size=3, stride=1, padding=1, dilation=1):
     return nn.Sequential(
         nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride,
                   padding=padding, dilation=dilation, bias=True),
         nn.LeakyReLU(0.1)
     )
-
-
-class EventRecNet(nn.Module):
-    def __init__(self, inChannels):
-        super(EventRecNet, self).__init__()
-        self.conv1 = nn.Conv2d(inChannels, 32, 7, stride=1, padding=3)
-        self.conv2 = nn.Conv2d(32, 32, 7, stride=1, padding=3)
-        self.down1 = down(32, 64, 5)
-        self.down2 = down(64, 128, 3)
-        self.down3 = down(128, 256, 3)
-        self.down4 = down(256, 512, 3)
-        self.down5 = down(512, 512, 3)
-        self.up1 = up(512, 512)
-        self.up2 = up(512, 256)
-        self.up3 = up(256, 128)
-        self.up4 = up(128, 64)
-        self.up5 = up(64, 32)
-        self.conv3 = nn.Conv2d(32, 1, 3, stride=1, padding=1)
-
-    def forward(self, e):
-        e = F.leaky_relu(self.conv1(e), negative_slope=0.1)
-        s1 = F.leaky_relu(self.conv2(e), negative_slope=0.1)
-        s2 = self.down1(s1)
-        s3 = self.down2(s2)
-        s4 = self.down3(s3)
-        s5 = self.down4(s4)
-        e = self.down5(s5)
-        e = self.up1(e, s5)
-        e = self.up2(e, s4)
-        e = self.up3(e, s3)
-        e = self.up4(e, s2)
-        e = self.up5(e, s1)
-        rec = self.conv3(e)
-        rec = torch.sigmoid(rec)
-        return rec
-
-
-class Tfeat_RefineBlock(nn.Module):
-    def __init__(self, ch_in, ch_in_prev, prev_scale=False):
-        super(Tfeat_RefineBlock, self).__init__()
-        if prev_scale:
-            nf = int((ch_in * 4 + ch_in_prev) / 4)
-        else:
-            nf = ch_in
-        self.conv_refine = nn.Sequential(conv1x1(4 * nf, nf), nn.ReLU(), conv3x3(nf, 2 * nf), nn.ReLU(),
-                                         conv_resblock_one(2 * nf, ch_in))
-
-    def forward(self, x):
-        x1 = self.conv_refine(x)
-        return x1
-
-
-class Upsample(nn.Module):
-    def __init__(self, in_channel, out_channel):
-        super(Upsample, self).__init__()
-        self.deconv = nn.ConvTranspose2d(in_channel, out_channel, kernel_size=2, stride=2)
-
-    def forward(self, x):
-        out = self.deconv(x)
-        return out
-
-    def flops(self, H, W):
-        flops = 0
-        # conv
-        flops += H * 2 * W * 2 * self.in_channel * self.out_channel * 2 * 2
-        print("Upsample:{%.2f}" % (flops / 1e9))
-        return flops
-
-
-class FeatureFusion(nn.Module):
-    def __init__(self, num_chs):
-        super(FeatureFusion, self).__init__()
-        self.feat_t_refine = nn.ModuleList(
-            [Tfeat_RefineBlock(num_chs[-1], None, prev_scale=False),
-             Tfeat_RefineBlock(num_chs[-2], num_chs[-1], prev_scale=True),
-             Tfeat_RefineBlock(num_chs[-3], num_chs[-2], prev_scale=True),
-             ])
-
-    def forward(self, F0_list, F1_list, E0t_list, E1t_list):
-        feat_t_list = []
-        for level, (F0, F1, E0t, E1t) in enumerate(zip(F0_list, F1_list, E0t_list, E1t_list)):
-            feat_t_in = torch.cat((F0, F1, E0t, E1t), 1)
-            if level != 0:
-                up_feat_t = resize_2d(feat_t, F0)
-                feat_t_in = torch.cat((up_feat_t, feat_t_in), 1)
-            feat_t = self.feat_t_refine[level](feat_t_in)
-            feat_t_list.append(feat_t)
-        return feat_t_list
 
 
 
@@ -218,14 +92,6 @@ class OffsetEstimator(nn.Module):
         mask = self.mask(x)
         return offset, mask
 
-
-def rescale_flow(flow, width_im, height_im):
-    u_scale = float(width_im / flow.size(3))
-    v_scale = float(height_im / flow.size(2))
-    u, v = flow.chunk(2, dim=1)
-    u = u_scale * u
-    v = v_scale * v
-    return torch.cat([u, v], dim=1)
 
 
 class FeaTNet(nn.Module):

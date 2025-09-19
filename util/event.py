@@ -27,8 +27,6 @@ def save_events(events, file):
         raise ValueError("Coordinates should be in [0; 2**16-1].")
     if (0 > events[:, Y_COLUMN]).any() or (events[:, Y_COLUMN] > 2 ** 16 - 1).any():
         raise ValueError("Coordinates should be in [0; 2**16-1].")
-    # if ((events[:, POLARITY_COLUMN] != -1) & (events[:, POLARITY_COLUMN] != 1)).any():
-    #     raise ValueError("Polarity should be in {-1,1}.")
     events = np.copy(events)
     x, y, timestamp, polarity = np.hsplit(events, events.shape[1])
     polarity = (polarity + 1) / 2
@@ -42,9 +40,6 @@ def save_events(events, file):
     
 
 def load_events(file, hsergb=False, bsergb=False, hqf=False, size=None):
-    """
-    加载事件数据并返回一个numpy数组
-    """
     if file.lower().endswith('.txt'):
         data = np.loadtxt(file, dtype=np.float32)
         timestamp, x, y, polarity = data[:, 0], data[:, 1], data[:, 2], data[:, 3]
@@ -66,10 +61,7 @@ def load_events(file, hsergb=False, bsergb=False, hqf=False, size=None):
                 tmp["polarity"].astype(np.float32).reshape((-1,)) * 2 - 1,  # to convert from 0,1 to 1,-1 polarity
             )
             x = (2 * 970 * x) // 62000  # Since the authors did not provided necessary information about scaling these numbers are carefully detemined by others.
-            y = (630 * y) // 20160 
-            # h, w = size[2], size[3]
-            # x = x / (19968 * w / h) * (w - 1)
-            # y = y / 19968 * (h - 1)
+            y = (630 * y) // 20160
         elif hqf:
             (x, y, timestamp, polarity) = (
                 tmp["x"].astype(np.float64).reshape((-1,)),
@@ -94,24 +86,8 @@ def load_events(file, hsergb=False, bsergb=False, hqf=False, size=None):
         events[:, 1] = events[:, 1] - size[0]
     return events
 
-# def load_events(file):
-#     """
-#     加载事件数据并返回一个numpy数组
-#     """
-#     tmp = np.load(file, allow_pickle=True)
-#     (x, y, timestamp, polarity) = (
-#         tmp["x"].astype(np.float64).reshape((-1,)) / 32768 * 970,
-#         tmp["y"].astype(np.float64).reshape((-1,)) / 20160 * 625,
-#         tmp["timestamp"].astype(np.float64).reshape((-1,)),
-#         tmp["polarity"].astype(np.float32).reshape((-1,)) * 2 -1
-#     )
-#     events = np.stack((x, y, timestamp, polarity), axis=-1)
-#     return events
-
 
 class EventJITSequenceIterator(object):
-    """事件序列迭代器"""
-
     def __init__(self, filenames):
         self.filenames = filenames
 
@@ -128,7 +104,6 @@ class EventJITSequenceIterator(object):
 
 
 class EventJITSequence(object):
-    """JIT文件序列阅读器"""
 
     def __init__(self, filenames, height, width):
         self._evseq = EventJITSequenceIterator(filenames)
@@ -140,17 +115,14 @@ class EventJITSequence(object):
         curbuf = next(ev_seq_iter)
         for start_timestamp, end_timestamp in zip(timestamps[:-1], timestamps[1:]):
             events = []
-            # 搜索第一个事件
             while not len(curbuf) or curbuf[-1, 2] < start_timestamp:
                 curbuf = next(ev_seq_iter)
             start_index = np.searchsorted(curbuf[:, 2], start_timestamp, side='right')
             events.append(curbuf[start_index:])
             curbuf = next(ev_seq_iter)
-            # 搜索最后一个事件
             while not len(curbuf) or curbuf[-1, 2] < end_timestamp:
                 events.append(curbuf)
                 curbuf = next(ev_seq_iter)
-            # 切换到最后一个事件
             end_index = np.searchsorted(curbuf[:, 2], end_timestamp, side='right')
             events.append(curbuf[:end_index])
             curbuf = curbuf[end_index:]
@@ -177,18 +149,9 @@ class EventJITSequence(object):
 
 
 class EventSequence(object):
-    """以旧优先顺序存储事件。"""
-
     def __init__(
             self, features, image_height, image_width, start_time=None, end_time=None
     ):
-        """返回EventSequence类的对象。
-
-        Args:
-            features: 事件序列，行为事件，列为特征(x, y, timestamp, polarity)
-            image_height, image_width: 事件传感器的宽度和高度。
-            start_time, end_time: 事件序列的开始和结束时间。
-        """
         self._features = features
         self._image_width = image_width
         self._image_height = image_height
@@ -203,7 +166,6 @@ class EventSequence(object):
     def __len__(self):
         return self._features.shape[0]
 
-    # 检查是否自洽，空间坐标是否在范围内，时间戳是否为升序，极性是否为1或负1，时间戳是否在范围内
     def is_self_consistent(self):
         return (
                 self.are_spatial_coordinates_within_range()
@@ -241,52 +203,7 @@ class EventSequence(object):
                 self._image_height - 1 - self._features[:, Y_COLUMN]
         )
 
-    def create_cnt_encoding(self):
-        """
-        Generate a two-channel event image containing event counters.
-        """
-        sensor_size = (self._image_width, self._image_height)
-        xs = self._features_torch[:, 0]
-        ys = self._features_torch[:, 1]
-        ps = self._features[:, 3]
-        mask_pos = ps.copy()
-        mask_neg = ps.copy()
-        mask_pos[ps < 0] = 0
-        mask_neg[ps > 0] = 0
-
-        pos_cnt = events_to_image(xs, ys, ps * mask_pos, sensor_size=sensor_size)
-        neg_cnt = events_to_image(xs, ys, ps * mask_neg, sensor_size=sensor_size)
-
-        return torch.stack([pos_cnt, neg_cnt])
-
-    def create_polarity_mask(self):
-        """
-        Creates a two channel tensor that acts as a mask for the input event list.
-        :param ps: [N] tensor with event polarity ([-1, 1])
-        :return [N x 2] event representation
-        """
-        ps = self._features_torch[:, 3]
-        inp_pol_mask = torch.stack([ps, ps])
-        inp_pol_mask[0, :][inp_pol_mask[0, :] < 0] = 0
-        inp_pol_mask[1, :][inp_pol_mask[1, :] > 0] = 0
-        inp_pol_mask[1, :] *= -1
-        inp_pol_mask = inp_pol_mask.clone().permute(1, 0)
-        return inp_pol_mask
-
     def reverse(self):
-        """Reverse temporal direction of the eventprocessing stream.
-            事件流的反向时间方向。
-        Polarities of the events reversed.
-
-                          (-)       (+)
-        --------|----------|---------|------------|----> time
-           t_start        t_1       t_2        t_end
-
-                          (+)       (-)
-        --------|----------|---------|------------|----> time
-                0    (t_end-t_2) (t_end-t_1) (t_end-t_start)
-
-        """
         if len(self) == 0:
             return
         self._features[:, TIMESTAMP_COLUMN] = (
@@ -294,7 +211,6 @@ class EventSequence(object):
         )
         self._features[:, POLARITY_COLUMN] = -self._features[:, POLARITY_COLUMN]
         self._start_time, self._end_time = 0, self._end_time - self._start_time
-        # 翻转“feature”矩阵的行，因为它首先按最早的排序。
         self._features = np.copy(np.flipud(self._features))
         return EventSequence(self._features, self._image_height, self._image_width, self._start_time, self._end_time)
 
@@ -345,10 +261,6 @@ class EventSequence(object):
             )
 
     def filter_by_timestamp(self, start_time, end_time, make_deep_copy=True):
-        """
-            返回按时间戳筛选的事件序列。
-            新序列包括[start_time，end_time]中的事件。
-        """
         mask = (start_time <= self._features[:, TIMESTAMP_COLUMN]) & (
                 end_time > self._features[:, TIMESTAMP_COLUMN]
         )
@@ -359,14 +271,6 @@ class EventSequence(object):
         return event_sequence
 
     def to_image(self, step, background=None):
-        """
-            将事件流可视化为PIL图像。
-            如果像素事件的主极性为1，则像素显示为红色；
-            如果像素事件的主极性为-1，则像素显示为蓝色；
-            如果像素没有接收到任何事件，或者其事件没有主极性，则显示为白色。
-            Args:
-                background: is PIL image.
-        """
         fea = self._features[::step]
         polarity = fea[:, POLARITY_COLUMN] == 1
         x_negative = fea[~polarity, X_COLUMN].astype(np.int)
@@ -411,24 +315,6 @@ class EventSequence(object):
         return points_on_background
 
     def _advance_index_to_timestamp(self, timestamp, side='left', start_index=0):
-        """
-            Binary search从“start_index”返回第一个带有timestamp>“timestamp”的事件的索引。
-        """
-        # left = start_index
-        # right = self.__len__() - 1
-        # while left <= right:
-        #     mid = left + (right - left) // 2
-        #     midval = self._features[mid, TIMESTAMP_COLUMN]
-        #     if midval == timestamp:
-        #         return mid
-        #     elif midval < timestamp:
-        #         left = mid + 1
-        #     else:
-        #         right = mid - 1
-        # if side == 'left':
-        #     return left
-        # return right
-
         index = start_index
         while index < len(self):
             if self._features[index, TIMESTAMP_COLUMN] >= timestamp:
@@ -437,9 +323,6 @@ class EventSequence(object):
         return index
 
     def split_in_two(self, timestamp):
-        """
-            将原始序列一分为二，返回两个序列。
-        """
         if not (self.start_time() <= timestamp <= self.end_time()):
             raise ValueError(
                 '"timestamps" should be between start and end of the sequence.'
@@ -452,8 +335,8 @@ class EventSequence(object):
 
     def make_iterator_over_splits(self, number_of_splits):
         """
-            在拆分上生成迭代器。
-            例如，如果“number_of_splits”=3，那么迭代器将输出
+            Generate an iterator for splitting.
+            For example, if "number_of_splits" = 3, the iterator will output
 
                 (t_start->t_0, t_0->t_end)
                 (t_start->t_1, t_1->t_end)
@@ -474,7 +357,7 @@ class EventSequence(object):
 
     def make_sequential_iterator(self, timestamps):
         """
-            生成顺序迭代器。
+            Generate sequential iterator.
             Args:
                 timestamps: list of timestamps that specify bining of events into the sub-sequences.
                             E.g. iterator will return events:
@@ -510,7 +393,7 @@ class EventSequence(object):
         return events
 
     def to_folder(self, folder, timestamps, event_file_template="{:06d}"):
-        """将事件处理序列保存到npz。.
+        """Save the event handling sequence to npz.
 
         Args:
             folder: folder where events will be saved in the files events_000000.npz,
@@ -532,7 +415,6 @@ class EventSequence(object):
 
     @classmethod
     def from_npz_files(cls, list_of_filenames, image_height, image_width, start_time=None, end_time=None, hsergb=False, bsergb=False, hqf=False, size=None):
-        """从numpy文件列表中读取事件处理序列。"""
         if len(list_of_filenames) > 1:
             features_list = []
             for f in list_of_filenames:
@@ -540,5 +422,4 @@ class EventSequence(object):
             features = np.concatenate(features_list)
         else:
             features = load_events(list_of_filenames[0], hsergb, bsergb, hqf, size)
-        # return EventSequence(features, image_height, image_width, start_time, end_time)
         return EventSequence(features, image_height, image_width) 
