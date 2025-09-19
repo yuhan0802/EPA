@@ -16,9 +16,6 @@ We present EPA, a novel framework designed to address a critical challenge in Ev
 
 <p align="center">
   <img src="assets/pipline.jpg" width="80%">
-  <br>
-  <em><b>Fig 1</b>:  The pipline of EPA.</em>
-  <!-- TODO: Create a high-quality GIF or comparison image, place it in a folder (e.g., assets/), and replace the path above. -->
 </p>
 
 
