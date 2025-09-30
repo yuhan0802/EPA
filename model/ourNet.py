@@ -9,7 +9,6 @@ class ourNet(nn.Module):
     def __init__(self, bins, cond_c):
         super(ourNet, self).__init__()
         self.generator = netGenerator(cond_c, training=True)
-        # self.generator.load_state_dict(torch.load("/home/lyh/PycharmProjects_lyh/work3/generator_versions/gv2/train/checkpoint/train_ckpt_20.pth", weights_only=False)['net'])
         self.generator.eval()
         for p in self.generator.parameters():
             p.requires_grad = False
@@ -21,14 +20,16 @@ class ourNet(nn.Module):
         F_0s = self.generator.get_cond(batch['img0'])
         Gts = self.generator.get_cond(batch['gt'])
         F_1s = self.generator.get_cond(batch['img1'])
-        
+
+        # Bidirectional Event-Guided Alignment
         Gts_pred_0 = self.fea_align(F_0s, F_1s, batch['e0t'])
         Gts_pred_1 = self.fea_align(F_1s, F_0s, batch['e1t'])
-        
         Gts_pred = self.fusion(Gts_pred_0, Gts_pred_1)
 
+        # Generator
         zs = self.generator.get_z(heat, batch['img0'].shape[-2:], batch['img0'].shape[0], batch['img0'].device)
         pred = self.generator.decode(zs, Gts_pred)
+
         return Gts, Gts_pred, pred, Gts_pred_0, Gts_pred_1
 
 

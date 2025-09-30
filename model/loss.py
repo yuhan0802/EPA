@@ -10,16 +10,6 @@ from util.iwe import get_interpolation, interpolate
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-class EPE(nn.Module):
-    def __init__(self):
-        super(EPE, self).__init__()
-
-    def forward(self, flow, gt, loss_mask):
-        loss_map = (flow - gt.detach()) ** 2
-        loss_map = (loss_map.sum(1, True) + 1e-6) ** 0.5
-        return (loss_map * loss_mask)
-
-
 class Ternary(nn.Module):
     def __init__(self):
         super(Ternary, self).__init__()

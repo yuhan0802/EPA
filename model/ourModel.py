@@ -1,13 +1,10 @@
 import os
 from torch.optim import AdamW
 from common.size_adapter import BatchSizeAdapter
-from model.netGenerator import netGenerator
-from model.loss import *
 from common.laplacian import *
 import lpips
-import torch.nn.functional as F
+import torch.nn as nn
 from model.ourNet import ourNet
-from util.utils_func import get_z
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -87,7 +84,7 @@ class Model:
         if type == 'everyone':
             torch.save(checkpoint, './train/checkpoint/' + finetune_name + '_ckpt.pth')
         else:
-            torch.save(checkpoint, './train/checkpoint/' + finetune_name + '_ckpt_%s_perc_l1loss.pth' % (str(epoch)))
+            torch.save(checkpoint, './train/checkpoint/' + finetune_name + '_ckpt_%s.pth' % (str(epoch)))
 
     def inverse_normalize(self, tensor):
         mean = torch.tensor([0.485, 0.456, 0.406]).to(device)
@@ -119,8 +116,6 @@ class Model:
         loss = self.perc(pred, pure_gt) + self.lap(pred, pure_gt)
         for fea_gt, fea_pred, p0, p1 in zip(Gts, Gts_pred, Gts_pred_0, Gts_pred_1):
             loss += self.l2(fea_gt, fea_pred) + 0.5 * self.l2(fea_gt, p0) + 0.1 * self.l2(fea_gt, p1)
-        # for fea_gt, fea_pred, p0, p1 in zip(Gts, Gts_pred, Gts_pred_0, Gts_pred_1):
-        #     loss += F.l1_loss(fea_gt, fea_pred) + 0.1 * F.l1_loss(fea_gt, p0) + 0.1 * F.l1_loss(fea_gt, p1)
         loss = loss.mean()
         self.optimG.zero_grad()
         loss.backward()
